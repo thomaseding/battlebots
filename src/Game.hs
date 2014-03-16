@@ -1,10 +1,12 @@
 module Game where
 
 
+import Control.Monad
 import Data.Either
 import Data.Map (Map)
 import Data.Maybe (maybeToList)
 import qualified Data.Map as Map
+import Data.Proxy
 import GameData
 import Values
 
@@ -148,7 +150,17 @@ removeBots :: Arena -> Arena
 removeBots = cellMap $ \cell -> cell { _bot = Nothing }
 
 
---------------------------------------------------------------------------------
+gatherBullets :: Arena -> [(Bullet, Coords)]
+gatherBullets arena = let
+    cellInfos = arenaCells arena
+    getBullets coords cell = let
+        f bullet = (bullet, coords)
+        in map f $ _bullets cell
+    in concatMap (uncurry getBullets) cellInfos
+
+
+removeBullets :: Arena -> Arena
+removeBullets = cellMap $ \cell -> cell { _bullets = [] }
 
 
 gatherMissiles :: Arena -> [(Missile, Coords)]
@@ -164,37 +176,107 @@ removeMissiles :: Arena -> Arena
 removeMissiles = cellMap $ \cell -> cell { _missiles = [] }
 
 
+class (PutCell a b) => GatherAll a b where
+    gatherAll :: Proxy a -> Arena -> [(a, Coords)]
+    removeAll :: Proxy a -> Arena -> Arena
+
+
+instance GatherAll Bullet Id where
+    gatherAll _ = gatherBullets
+    removeAll _ = removeBullets
+
+
+instance GatherAll Missile Id where
+    gatherAll _ = gatherMissiles
+    removeAll _ = removeMissiles
+
+
+--------------------------------------------------------------------------------
+
+
+mkProxy :: a -> Proxy a
+mkProxy _ = Proxy
+
+
+newtype Speed = Speed { unSpeed :: Int }
+
+
+--------------------------------------------------------------------------------
+
+
+class (GatherAll a Id) => Projectile a where
+    projectileDir :: a -> Dir
+    projectileSpeed :: Proxy a -> Speed
+    projectileImpactDamage :: Proxy a -> ImpactDamage
+    projectileSplashDamage :: Proxy a -> SplashDamage
+
+
+instance Projectile Bullet where
+    projectileDir (Bullet dir) = dir
+    projectileSpeed _ = Speed 3
+    projectileImpactDamage _ = ImpactDamage 1
+    projectileSplashDamage _ = SplashDamage 0
+
+
+instance Projectile Missile where
+    projectileDir (Missile dir) = dir
+    projectileSpeed _ = Speed 2
+    projectileImpactDamage _ = ImpactDamage 3
+    projectileSplashDamage _ = SplashDamage 1
+
+
+--------------------------------------------------------------------------------
+
+
+tickBullets :: Arena -> Arena
+tickBullets = tickProjectiles (Proxy :: Proxy Bullet)
+
+
 tickMissiles :: Arena -> Arena
-tickMissiles arena = let
-    ms = gatherMissiles arena
-    arena' = removeMissiles arena
-    in foldr (uncurry tickMissile) arena' ms
+tickMissiles = tickProjectiles (Proxy :: Proxy Missile)
 
 
-tickMissile :: Missile -> Coords -> Arena -> Arena
-tickMissile m coords arena = let
-    Missile dir = m
-    in case moveMissile coords dir of
-        Left boomCoords -> explodeMissile boomCoords arena
+tickProjectiles :: (Projectile a) => Proxy a -> Arena -> Arena
+tickProjectiles proxy arena = let
+    ps = gatherAll proxy arena
+    arena' = removeAll proxy arena
+    in foldr (uncurry tickProjectile) arena' ps
+
+
+tickProjectile :: (Projectile a) => a -> Coords -> Arena -> Arena
+tickProjectile p coords arena = let
+    dir = projectileDir p
+    proxy = mkProxy p
+    in case moveProjectile proxy coords dir of
+        Left collision -> explodeProjectile proxy collision arena
         Right coords' -> let
             cell = getCell coords' arena
             in case _bot cell of
-                Nothing -> runId $ putCell coords' m arena
+                Nothing -> runId $ putCell coords' p arena
                 Just _ -> let
-                    boomCoords = CollisionCoords coords'
-                    in explodeMissile boomCoords arena
+                    collision = CollisionCoords coords'
+                    in explodeProjectile proxy collision arena
 
 
-moveMissile :: Coords -> Dir -> Either CollisionCoords Coords
-moveMissile coords dir = let
+repeatM :: (Monad m) => Int -> (a -> m a) -> a -> m a
+repeatM n f x = let
+    g = const . f
+    in foldM g x $ replicate n ()
+
+
+moveProjectile :: (Projectile a) => Proxy a -> Coords -> Dir -> Either CollisionCoords Coords
+moveProjectile proxy coords dir = let
     move = flip moveDir dir
-    in case move coords >>= move of
+    in case return coords >>= repeatM (unSpeed $ projectileSpeed proxy) move of
         Left coords' -> Left $ CollisionCoords coords'
         Right coords' -> Right coords'
 
 
-explodeMissile :: CollisionCoords -> Arena -> Arena
-explodeMissile = explodeWeapon (ImpactDamage 3) (SplashDamage 1)
+explodeProjectile :: (Projectile a) => Proxy a => CollisionCoords -> Arena -> Arena
+explodeProjectile proxy = let
+    impact = projectileImpactDamage proxy
+    splash = projectileSplashDamage proxy
+    in explodeWeapon impact splash
 
 
 --------------------------------------------------------------------------------
