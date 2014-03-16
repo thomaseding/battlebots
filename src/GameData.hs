@@ -1,3 +1,5 @@
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
 module GameData where
 
 
@@ -31,18 +33,18 @@ instance Values Energy where
 --------------------------------------------------------------------------------
 
 
-data Controller = P1 | P2
+data Player = P1 | P2
     deriving (Show, Read, Eq, Ord, Enum)
 
 
-instance Values Controller where
+instance Values Player where
     allValues = [toEnum 0 ..]
 
 
 --------------------------------------------------------------------------------
 
 
-data Bot = Bot Controller Energy
+data Bot = Bot Player Energy
     deriving (Show, Read, Eq, Ord)
 
 
