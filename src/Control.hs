@@ -1,6 +1,6 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
-module Controller (
+module Control (
     CommandLine,
     runCommandLine,
 
