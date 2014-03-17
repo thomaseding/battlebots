@@ -3,20 +3,8 @@
 module GameData where
 
 
-import Control.Monad
-import Data.List
 import Data.Map (Map)
-import qualified Data.Map as Map
 import Values
-
-
---------------------------------------------------------------------------------
-
-
-mkReadsPrec :: String -> a -> (Int -> ReadS a)
-mkReadsPrec s x = \_ str -> case stripPrefix s str of
-    Nothing -> []
-    Just str' -> [(x, str')]
 
 
 --------------------------------------------------------------------------------
@@ -132,12 +120,8 @@ instance Values EmpDuration where
 --------------------------------------------------------------------------------
 
 
-newtype Emp = Emp EmpDuration
-    deriving (Show, Read, Eq, Ord, Enum)
-
-
-instance Values Emp where
-    allValues = [toEnum 0 ..]
+newtype Emp = Emp (Maybe EmpDuration)
+    deriving (Show, Read, Eq, Ord)
 
 
 --------------------------------------------------------------------------------

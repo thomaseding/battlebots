@@ -6,16 +6,19 @@
 module Game where
 
 
-import Control.Monad
-import Control.Monad.State.Strict
+import Control.Monad (foldM, unless)
+import Control.Monad.State.Strict (gets, modify, evalStateT, StateT, MonadState)
+import Control.Monad.Trans (MonadIO, lift, MonadTrans)
 import Data.Either (rights)
-import Data.Map (Map)
+import Data.List (sortBy)
 import qualified Data.Map as Map
 import Data.Maybe (maybeToList, isJust, fromJust)
-import Data.Proxy
+import Data.Ord (comparing)
+import Data.Proxy (Proxy(Proxy))
 import GameData
-import System.Random
-import Values
+import System.Random (StdGen, random, randomRs, split)
+import Text.Read (readMaybe)
+import Values (allValues)
 
 
 --------------------------------------------------------------------------------
@@ -38,6 +41,10 @@ newArena = Arena Map.empty
 
 cellMap :: (Cell -> Cell) -> Arena -> Arena
 cellMap f = Arena . Map.map f . unArena
+
+
+tickArena :: Arena -> Arena
+tickArena = tickLandMines . tickBullets . tickMissiles
 
 
 --------------------------------------------------------------------------------
@@ -180,9 +187,9 @@ feedDamage amount coords arena = let
     updateBotInfo botInfo = (damageBot botInfo, snd botInfo)
     botInfos' = map updateBotInfo botInfos
     arena' = removeBots arena
-    putBotInfo (bot, coords) = let
+    putBotInfo (bot, botCoords) = let
         err = error "feedDamage: The impossible just happened."
-        in maybe err id . putCell coords bot
+        in maybe err id . putCell botCoords bot
     in foldr putBotInfo arena' botInfos'
 
 
@@ -195,7 +202,8 @@ gatherBots arena = let
     getBots coords cell = let
         f bot = (bot, coords)
         in map f $ maybeToList $ _bot cell
-    in concatMap (uncurry getBots) cellInfos
+    orderByPlayer = sortBy $ comparing $ \(Bot p _, _) -> p
+    in orderByPlayer $ concatMap (uncurry getBots) cellInfos
 
 
 removeBots :: Arena -> Arena
@@ -390,18 +398,39 @@ newtype Winner = Winner { unWinner :: Player }
 --------------------------------------------------------------------------------
 
 
-class (Monad m) => BoutMonad m
+data Command
+    = DoNothing
+    | Move Dir
+    | FireBullet Dir
+    | FireMissile Dir
+    | DropLandMine Dir
+    | FireEmp
+    | UnknownCommand
+    deriving (Show, Eq, Ord)
+
+
+--------------------------------------------------------------------------------
+
+
+class (Monad m) => MonadBattleBots m where
+    getCommand :: Arena -> Player -> m Command
+    tellArena :: Arena -> m ()
 
 
 data BoutState = BoutState {
     _arena :: Arena,
     _time :: Int,
-    _emp :: ()
+    _emp :: Maybe EmpDuration
 } deriving (Show, Read, Eq, Ord)
 
 
 newtype BoutEngine m a = BoutEngine { unBoutEngine :: StateT BoutState m a }
-    deriving (Functor, Monad, MonadIO, MonadState BoutState)
+    deriving (Functor, Monad, MonadIO, MonadState BoutState, MonadTrans)
+
+
+instance (MonadBattleBots m) => MonadBattleBots (BoutEngine m) where
+    getCommand arena = lift . getCommand arena
+    tellArena = lift . tellArena
 
 
 setupBout :: StdGen -> Player -> Player -> BoutState
@@ -420,10 +449,10 @@ setupBout gen p0 p1 = let
     in BoutState {
         _arena = arena,
         _time = 0,
-        _emp = () }
+        _emp = Nothing }
 
 
-runBout :: (BoutMonad m) => StdGen -> m (Maybe Winner)
+runBout :: (MonadBattleBots m) => StdGen -> m (Maybe Winner)
 runBout gen = let
     (gen1, gen2) = split gen
     ps = case fst $ random gen1 of
@@ -433,47 +462,264 @@ runBout gen = let
     go = do
         mWinner <- getWinner
         case mWinner of
-            Just _ -> return mWinner
+            Just _ -> do
+                tellArena =<< gets _arena
+                return mWinner
             Nothing -> do
                 time <- gets _time
                 case time < 1000 of
                     False -> return Nothing
-                    True -> tickBout >> go
+                    True -> do
+                        tellArena =<< gets _arena
+                        tickBout
+                        go
     in evalStateT (unBoutEngine go) st
 
 
-getWinner :: (BoutMonad m) => BoutEngine m (Maybe Winner)
+isAlive :: Bot -> Bool
+isAlive b = case b of
+    Bot _ E0 -> True
+    _ -> False
+
+
+getWinner :: (MonadBattleBots m) => BoutEngine m (Maybe Winner)
 getWinner = do
     arena <- gets _arena
     let bots = map fst $ gatherBots arena
-        isAlive bot@(Bot _ e) = case e of
-            E0 -> True
-            _ -> False
         aliveBots = filter isAlive bots
     return $ case aliveBots of
         [Bot p _] -> Just $ Winner p
         _ -> Nothing
-    
 
 
-tickBout :: (BoutMonad m) => BoutEngine m ()
-tickBout = error "fwefweg93eb"
+tickBout :: (MonadBattleBots m) => BoutEngine m ()
+tickBout = do
+    runCommands
+    modify $ \st -> let
+        emp = case _emp st of
+            Nothing -> Nothing
+            Just EmpTwoRounds -> Just EmpOneRound
+            Just EmpOneRound -> Nothing
+        in st {
+            _arena = tickArena $ _arena st,
+            _time = _time st + 1,
+            _emp = emp }
 
 
+runCommands :: (MonadBattleBots m) => BoutEngine m ()
+runCommands = do
+    arena <- gets _arena
+    let bots = map fst $ gatherBots arena
+        (bot0, bot1) = case bots of
+            [b0, b1] -> (b0, b1)
+            _ -> error "tickBout: The impossible just happened."
+        Bot p0 _ = bot0
+        Bot p1 _ = bot1
+        reissueMove prevMoveSuccess cmd bot = case prevMoveSuccess of
+            Success -> return ()
+            Failure -> issueMove cmd bot >> return ()
+    empActive <- gets $ isJust . _emp
+    unless empActive $ do
+        cmd0 <- getCommand arena p0
+        cmd1 <- getCommand arena p1
+        moveSuccess0 <- issueMove cmd0 bot0
+        moveSuccess1 <- issueMove cmd1 bot1
+        reissueMove moveSuccess0 cmd0 bot0
+        reissueMove moveSuccess1 cmd1 bot1
+        issueNonMove cmd0 bot0
+        issueNonMove cmd1 bot1
 
 
+data Success = Failure | Success
 
 
+issueMove :: (MonadBattleBots m) => Command -> Bot -> BoutEngine m Success
+issueMove cmd bot = case cmd of
+    Move dir -> moveBot bot dir
+    _ -> return Failure
 
 
+issueNonMove :: (MonadBattleBots m) => Command -> Bot -> BoutEngine m ()
+issueNonMove cmd bot = case cmd of
+    DoNothing -> return ()
+    Move _ -> return ()
+    FireBullet dir -> fireBullet bot dir
+    FireMissile dir -> fireMissile bot dir
+    DropLandMine dir -> dropLandMine bot dir
+    FireEmp -> fireEmp bot
+    UnknownCommand -> return ()
 
 
+fireProjectile :: (MonadBattleBots m, Projectile a) => Bot -> a -> BoutEngine m ()
+fireProjectile bot p = modify $ \st -> let
+    arena = _arena st
+    coords = getBotCoords bot arena
+    arena' = runId $ putCell coords p arena
+    in st { _arena = arena' }
 
 
+fireBullet :: (MonadBattleBots m) => Bot -> Dir -> BoutEngine m ()
+fireBullet bot = fireProjectile bot . Bullet
 
 
+fireMissile :: (MonadBattleBots m) => Bot -> Dir -> BoutEngine m ()
+fireMissile bot = fireProjectile bot . Missile
 
 
+dropLandMine :: (MonadBattleBots m) => Bot -> Dir -> BoutEngine m ()
+dropLandMine bot dir = modify $ \st -> let
+    arena = _arena st
+    coords = getBotCoords bot arena
+    in case moveDir coords dir of
+        Left _ -> st
+        Right coords' -> case _bot $ getCell coords' arena of
+            Just _ -> st
+            Nothing -> let
+                arena' = runId $ putCell coords' LandMine arena
+                in st { _arena = arena' }
+
+
+fireEmp :: (MonadBattleBots m) => Bot -> BoutEngine m ()
+fireEmp bot = do
+    arena <- gets _arena
+    let bot' = loseEnergy 1 bot
+        coords = getBotCoords bot arena
+        arena' = removeBot bot arena
+        arena'' = case putCell coords bot' arena' of
+            Nothing -> error "fireEmp: The impossible just happened."
+            Just a -> a
+    modify $ \st -> st { _arena = arena'', _emp = Just EmpTwoRounds }
+
+
+getBotCoords :: Bot -> Arena -> Coords
+getBotCoords bot arena = let
+    botInfos = gatherBots arena
+    in case botInfos of
+        [(bot0, coords0), (bot1, coords1)] -> case bot == bot0 of
+            True -> coords0
+            False -> case bot == bot1 of
+                True -> coords1
+                False -> error "getBotCoords: The impossible just happened."
+        _ -> error "getBotCoords: The impossible just happened."
+
+
+removeBot :: Bot -> Arena -> Arena
+removeBot bot arena = let
+    coords = getBotCoords bot arena
+    cell = getCell coords arena
+    cell' = cell { _bot = Nothing }
+    in rawPutCell coords cell' arena
+
+
+moveBot :: (MonadBattleBots m) => Bot -> Dir -> BoutEngine m Success
+moveBot bot dir = do
+    arena <- gets _arena
+    let coords = getBotCoords bot arena
+        mArena' = case moveDir coords dir of
+            Left _ -> Nothing
+            Right coords' -> putCell coords' bot $ removeBot bot arena
+    case mArena' of
+        Nothing -> return Failure
+        Just arena' -> do
+            modify $ \st -> st { _arena = arena' }
+            return Success
+
+
+split5 :: StdGen -> (StdGen, StdGen, StdGen, StdGen, StdGen)
+split5 gen = let
+    (g0, g1') = split gen
+    (g1, g2') = split g1'
+    (g2, g3') = split g2'
+    (g3, g4) = split g3'
+    in (g0, g1, g2, g3, g4)
+
+
+getMatchWinner :: [Maybe Winner] -> Maybe Winner
+getMatchWinner ws = let
+    count p = length . filter (== (Just $ Winner p))
+    countP1 = count P1 ws
+    countP2 = count P2 ws
+    in fmap Winner $ case compare countP1 countP2 of
+        EQ -> Nothing
+        GT -> Just P1
+        LT -> Just P2
+
+
+runMatch :: (MonadBattleBots m) => StdGen -> m (Maybe Winner)
+runMatch gen = do
+    let (g0, g1, g2, g3, g4) = split5 gen
+    w0 <- runBout g0
+    w1 <- runBout g1
+    w2 <- runBout g2
+    w3 <- runBout g3
+    w4 <- runBout g4
+    return $ getMatchWinner [w0, w1, w2, w3, w4]
+
+
+--------------------------------------------------------------------------------
+
+
+parseCommand :: String -> Command
+parseCommand str = case str of
+    "0" -> DoNothing
+    "P" -> FireEmp
+    'B' : ' ' : rest -> case readMaybe rest of
+        Nothing -> DoNothing
+        Just dir -> FireBullet dir
+    'M' : ' ' : rest -> case readMaybe rest of
+        Nothing -> DoNothing
+        Just dir -> FireMissile dir
+    'L' : ' ' : rest -> case readMaybe rest of
+        Nothing -> DoNothing
+        Just dir -> DropLandMine dir
+    _ -> case readMaybe str of
+        Nothing -> DoNothing
+        Just dir -> Move dir
+
+
+cellChar :: Cell -> Char
+cellChar cell = let
+    bot = case _bot cell of
+        Nothing -> ""
+        Just (Bot p _) -> case p of
+            P1 -> "1"
+            P2 -> "2"
+    bullet = case _bullets cell of
+        [] -> ""
+        _ -> "B"
+    missile = case _missiles cell of
+        [] -> ""
+        _ -> "M"
+    landMine = case _landMines cell of
+        [] -> ""
+        _ -> "L"
+    in case bot ++ bullet ++ missile ++ landMine of
+        "" -> '.'
+        [c] -> c
+        _ -> '?'
+
+
+showArena :: Arena -> String
+showArena arena = let
+    rows = [0 .. 9]
+    cols = [0 .. 9]
+    showRow row = let
+        f col = let
+            coords = Coords col row
+            cell = getCell coords arena
+            in cellChar cell
+        in map f cols
+    in unlines $ map showRow rows
+
+
+--------------------------------------------------------------------------------
+
+
+instance MonadBattleBots IO where
+    tellArena = putStrLn . showArena
+    getCommand _ p = do
+        putStr $ show p ++ "> "
+        fmap parseCommand getLine
 
 
 
