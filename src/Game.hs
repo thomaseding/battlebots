@@ -6,9 +6,10 @@
 module Game where
 
 
-import Control.Monad (foldM, unless)
+import Control.Monad (foldM, unless, replicateM, liftM)
+import Control.Monad.Random (MonadRandom(..))
 import Control.Monad.State.Strict (gets, modify, evalStateT, StateT, MonadState)
-import Control.Monad.Trans (MonadIO, lift, MonadTrans)
+import Control.Monad.Trans (MonadTrans(..), MonadIO(..))
 import Data.Either (rights)
 import Data.List (sortBy)
 import qualified Data.Map as Map
@@ -16,7 +17,6 @@ import Data.Maybe (maybeToList, isJust, fromJust)
 import Data.Ord (comparing)
 import Data.Proxy (Proxy(Proxy))
 import GameData
-import System.Random (StdGen, random, randomRs, split)
 import Text.Read (readMaybe)
 import Values (allValues)
 
@@ -26,6 +26,14 @@ import Values (allValues)
 
 mkProxy :: a -> Proxy a
 mkProxy _ = Proxy
+
+
+pick :: (MonadRandom m) => [a] -> m a
+pick xs = case length xs of
+    0 -> error "pick: empty list"
+    n -> do
+        idx <- getRandomR (0, n - 1)
+        return $ xs !! idx
 
 
 newtype Id a = Id { runId :: a }
@@ -361,8 +369,8 @@ tickLandMine mine coords arena = let
     in case mineExists || botExists of
         False -> runId $ putCell coords mine arena
         True -> case (mineExists && botExists) || (mineCount > 1) of
-            False -> error "tickLandMine: The impossible just happened."
-            True -> let
+            True -> error "tickLandMine: The impossible just happened."
+            False -> let
                 collision = CollisionCoords coords
                 in explodeMine collision arena
 
@@ -412,7 +420,7 @@ data Command
 --------------------------------------------------------------------------------
 
 
-class (Monad m) => MonadBattleBots m where
+class (MonadRandom m) => MonadBattleBots m where
     getCommand :: Arena -> Player -> m Command
     tellArena :: Arena -> m ()
 
@@ -428,22 +436,32 @@ newtype BoutEngine m a = BoutEngine { unBoutEngine :: StateT BoutState m a }
     deriving (Functor, Monad, MonadIO, MonadState BoutState, MonadTrans)
 
 
+instance (MonadRandom m) => MonadRandom (BoutEngine m) where
+    getRandom = lift getRandom
+    getRandoms = lift getRandoms
+    getRandomR = lift . getRandomR
+    getRandomRs = lift . getRandomRs
+
+
 instance (MonadBattleBots m) => MonadBattleBots (BoutEngine m) where
     getCommand arena = lift . getCommand arena
     tellArena = lift . tellArena
 
 
-setupBout :: StdGen -> Player -> Player -> BoutState
-setupBout gen p0 p1 = let
-    vals = randomRs (0, 9) gen
+setupBoutM :: (MonadRandom m) => m BoutState
+setupBoutM = do
+    coordsLeft <- liftM (Coords 0) $ getRandomR (0, 9)
+    coordsRight <- liftM (Coords 9) $ getRandomR (0, 9)
+    (playerLeft, playerRight) <- pick [(P1, P2), (P2, P1)]
+    let infoLeft = (playerLeft, coordsLeft)
+        infoRight = (playerRight, coordsRight)
+    return $ setupBout infoLeft infoRight
+
+
+setupBout :: (Player, Coords) -> (Player, Coords) -> BoutState
+setupBout (p0, coords0) (p1, coords1) = let
     bot0 = Bot p0 E10
     bot1 = Bot p1 E10
-    x0 = 0
-    x1 = 9
-    y0 = vals !! 0
-    y1 = vals !! 1
-    coords0 = Coords x0 y0
-    coords1 = Coords x1 y1
     putBot c b = fromJust . putCell c b
     arena = putBot coords0 bot0 $ putBot coords1 bot1 $ newArena
     in BoutState {
@@ -452,34 +470,31 @@ setupBout gen p0 p1 = let
         _emp = Nothing }
 
 
-runBout :: (MonadBattleBots m) => StdGen -> m (Maybe Winner)
-runBout gen = let
-    (gen1, gen2) = split gen
-    ps = case fst $ random gen1 of
-        True -> [P1, P2]
-        False -> [P2, P1]
-    st = setupBout gen2 (ps !! 0) (ps !! 1)
-    go = do
-        mWinner <- getWinner
-        case mWinner of
-            Just _ -> do
-                tellArena =<< gets _arena
-                return mWinner
-            Nothing -> do
-                time <- gets _time
-                case time < 1000 of
-                    False -> return Nothing
-                    True -> do
-                        tellArena =<< gets _arena
-                        tickBout
-                        go
-    in evalStateT (unBoutEngine go) st
+runBout :: (MonadBattleBots m) => m (Maybe Winner)
+runBout = do
+    st <- setupBoutM
+    evalStateT (unBoutEngine go) st
+    where
+        go = do
+            mWinner <- getWinner
+            case mWinner of
+                Just _ -> do
+                    tellArena =<< gets _arena
+                    return mWinner
+                Nothing -> do
+                    time <- gets _time
+                    case time < 1000 of
+                        False -> return Nothing
+                        True -> do
+                            tellArena =<< gets _arena
+                            tickBout
+                            go
 
 
 isAlive :: Bot -> Bool
 isAlive b = case b of
-    Bot _ E0 -> True
-    _ -> False
+    Bot _ E0 -> False
+    _ -> True
 
 
 getWinner :: (MonadBattleBots m) => BoutEngine m (Maybe Winner)
@@ -625,15 +640,6 @@ moveBot bot dir = do
             return Success
 
 
-split5 :: StdGen -> (StdGen, StdGen, StdGen, StdGen, StdGen)
-split5 gen = let
-    (g0, g1') = split gen
-    (g1, g2') = split g1'
-    (g2, g3') = split g2'
-    (g3, g4) = split g3'
-    in (g0, g1, g2, g3, g4)
-
-
 getMatchWinner :: [Maybe Winner] -> Maybe Winner
 getMatchWinner ws = let
     count p = length . filter (== (Just $ Winner p))
@@ -645,15 +651,8 @@ getMatchWinner ws = let
         LT -> Just P2
 
 
-runMatch :: (MonadBattleBots m) => StdGen -> m (Maybe Winner)
-runMatch gen = do
-    let (g0, g1, g2, g3, g4) = split5 gen
-    w0 <- runBout g0
-    w1 <- runBout g1
-    w2 <- runBout g2
-    w3 <- runBout g3
-    w4 <- runBout g4
-    return $ getMatchWinner [w0, w1, w2, w3, w4]
+runMatch :: (MonadBattleBots m) => m (Maybe Winner)
+runMatch = liftM getMatchWinner $ replicateM 5 runBout
 
 
 --------------------------------------------------------------------------------
@@ -715,11 +714,41 @@ showArena arena = let
 --------------------------------------------------------------------------------
 
 
-instance MonadBattleBots IO where
-    tellArena = putStrLn . showArena
-    getCommand _ p = do
+newtype ConsoleIO a = ConsoleIO { runConsoleIO :: IO a }
+    deriving (Monad, MonadRandom, MonadIO)
+
+
+instance MonadBattleBots ConsoleIO where
+    tellArena arena = liftIO $ do
+        putStrLn $ showArena arena
+    getCommand _ p = liftIO $ do
         putStr $ show p ++ "> "
         fmap parseCommand getLine
+
+
+--------------------------------------------------------------------------------
+
+
+newtype RandomIO a = RandomIO { runRandomIO :: IO a }
+    deriving (Monad, MonadRandom, MonadIO)
+
+
+instance MonadBattleBots RandomIO where
+    tellArena arena = liftIO $ do
+        putStrLn $ showArena arena
+        putStrLn "PRESS ENTER"
+        _ <- getLine
+        return ()
+    getCommand _ _ = do
+        dir <- pick allValues
+        pick [
+            DoNothing,
+            Move dir,
+            FireBullet dir,
+            FireMissile dir,
+            DropLandMine dir,
+            FireEmp ]
+
 
 
 
