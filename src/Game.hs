@@ -487,25 +487,30 @@ runBout = do
     evalStateT (unBoutEngine go) st
     where
         go = do
-            mWinner <- getWinner
-            case mWinner of
-                Just _ -> do
+            gameOver <- getGameOver
+            case gameOver of
+                True -> do
                     tellArena =<< gets _arena
-                    return mWinner
-                Nothing -> do
-                    time <- gets _time
-                    case time < 1000 of
-                        False -> return Nothing
-                        True -> do
-                            tellArena =<< gets _arena
-                            tickBout
-                            go
+                    getWinner
+                False -> do
+                    tellArena =<< gets _arena
+                    tickBout
+                    go
 
 
 isAlive :: Bot -> Bool
 isAlive b = case b of
     Bot _ E0 -> False
     _ -> True
+
+
+getGameOver :: (MonadBattleBots m) => BoutEngine m Bool
+getGameOver = do
+    arena <- gets _arena
+    time <- gets _time
+    let bots = map fst $ gatherBots arena
+        aliveBots = filter isAlive bots
+    return $ bots /= aliveBots && time < 1000
 
 
 getWinner :: (MonadBattleBots m) => BoutEngine m (Maybe Winner)
