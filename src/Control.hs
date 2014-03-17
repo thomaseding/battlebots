@@ -10,7 +10,7 @@ module Controller (
 
 import Control.Monad.Random (MonadRandom, getRandomR)
 import Control.Monad.Trans (MonadIO, liftIO)
-import Data.Maybe (maybeToList)
+import Data.Maybe (maybeToList, listToMaybe)
 import Data.Proxy (Proxy(..))
 import Game
 import GameData
@@ -63,52 +63,74 @@ parseCommand str = case str of
         Just dir -> Move dir
 
 
-cellChar :: Cell -> Char
-cellChar cell = let
-    bot = case _bot cell of
-        Nothing -> Nothing
-        Just (Bot _ e) -> Just $ case e of
-            E0 -> '0'
-            E1 -> '1'
-            E2 -> '2'
-            E3 -> '3'
-            E4 -> '4'
-            E5 -> '5'
-            E6 -> '6'
-            E7 -> '7'
-            E8 -> '8'
-            E9 -> '9'
-            E10 -> '+'
-        --Just (Bot p _) -> Just $ case p of
-            --P1 -> '1'
-            --P2 -> '2'
-    bullet = case _bullets cell of
-        [] -> Nothing
-        _ -> Just 'B'
-    missile = case _missiles cell of
-        [] -> Nothing
-        _ -> Just 'M'
-    landMine = case _landMines cell of
-        [] -> Nothing
-        _ -> Just 'L'
-    f = maybeToList
-    in case f bot ++ f bullet ++ f missile ++ f landMine of
-        "" -> '.'
-        [c] -> c
-        _ -> '?'
+data EmptyCell = EmptyCell
 
 
-showArena :: Arena -> String
-showArena arena = let
+transformCell
+    :: (EmptyCell -> a)
+    -> (Bot -> a)
+    -> (Bullet -> a)
+    -> (Missile -> a)
+    -> (LandMine -> a)
+    -> ([a] -> a)
+    -> Cell
+    -> a
+transformCell fe fbot fb fm fl fxs cell = let
+    bot = fmap fbot $ _bot cell
+    bullet = fmap fb $ listToMaybe $ _bullets cell
+    missile = fmap fm $ listToMaybe $ _missiles cell
+    landMine = fmap fl $ listToMaybe $ _landMines cell
+    g = maybeToList
+    in case g bot ++ g bullet ++ g missile ++ g landMine of
+        [] -> fe EmptyCell
+        [x] -> x
+        xs -> fxs xs
+
+
+gridify :: Arena -> [[Cell]]
+gridify arena = let
     rows = [0 .. 9]
     cols = [0 .. 9]
     showRow row = let
         f col = let
             coords = Coords col row
-            cell = getCell coords arena
-            in cellChar cell
+            in getCell coords arena
         in map f cols
-    in unlines $ map showRow rows
+    in map showRow rows
+
+
+showArena :: Maybe Player -> Arena -> String
+showArena mPlayer arena = gridChars ++ fullInfo
+    where
+        grid = gridify arena
+        gridChars = unlines $ map (map cellToChar) grid
+        playerToChar p = case mPlayer of
+            Nothing -> case p of
+                P1 -> '1'
+                P2 -> '2'
+            Just p' -> case p == p' of
+                True -> 'X'
+                False -> 'Y'
+        cellToChar = let
+            fe _ = '.'
+            fbot (Bot p _) = playerToChar p
+            fb _ = 'B'
+            fm _ = 'M'
+            fl _ = 'L'
+            fxs _ = '?'
+            in transformCell fe fbot fb fm fl fxs
+        showCoords (Coords x y) = show x ++ " " ++ show y
+        fullInfo = let
+            bots = gatherAll (Proxy :: Proxy Bot) arena
+            bullets = gatherAll (Proxy :: Proxy Bullet) arena
+            missiles = gatherAll (Proxy :: Proxy Missile) arena
+            landMines = gatherAll (Proxy :: Proxy LandMine) arena
+            fbot _ (Bot p e) = playerToChar p : " " ++ show (fromEnum e)
+            fb coords (Bullet dir) = "B " ++ showCoords coords ++ " " ++ show dir
+            fm coords (Missile dir) = "M " ++ showCoords coords ++ " " ++ show dir
+            fl coords LandMine = "L " ++ showCoords coords
+            g = map . uncurry . flip
+            in unlines $ g fbot bots ++ g fb bullets ++ g fm missiles ++ g fl landMines
 
 
 --------------------------------------------------------------------------------
@@ -120,7 +142,7 @@ newtype CommandLine a = CommandLine { runCommandLine :: IO a }
 
 instance MonadBattleBots CommandLine where
     tellArena arena = liftIO $ do
-        putStrLn $ showArena arena
+        putStrLn $ showArena Nothing arena
     getCommand p _ = liftIO $ do
         putStr $ show p ++ "> "
         fmap parseCommand getLine
@@ -135,7 +157,7 @@ newtype RandomIO a = RandomIO { runRandomIO :: IO a }
 
 instance MonadBattleBots RandomIO where
     tellArena arena = liftIO $ do
-        putStrLn $ showArena arena
+        putStrLn $ showArena Nothing arena
         putStrLn "PRESS ENTER"
         _ <- getLine
         return ()
