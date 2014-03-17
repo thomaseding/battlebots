@@ -421,7 +421,7 @@ data Command
 
 
 class (MonadRandom m) => MonadBattleBots m where
-    getCommand :: Arena -> Player -> m Command
+    getCommand :: Player -> Arena -> m Command
     tellArena :: Arena -> m ()
 
 
@@ -444,7 +444,7 @@ instance (MonadRandom m) => MonadRandom (BoutEngine m) where
 
 
 instance (MonadBattleBots m) => MonadBattleBots (BoutEngine m) where
-    getCommand arena = lift . getCommand arena
+    getCommand p = lift . getCommand p
     tellArena = lift . tellArena
 
 
@@ -535,8 +535,8 @@ runCommands = do
             Failure -> issueMove cmd bot >> return ()
     empActive <- gets $ isJust . _emp
     unless empActive $ do
-        cmd0 <- getCommand arena p0
-        cmd1 <- getCommand arena p1
+        cmd0 <- getCommand p0 arena
+        cmd1 <- getCommand p1 arena
         moveSuccess0 <- issueMove cmd0 bot0
         moveSuccess1 <- issueMove cmd1 bot1
         reissueMove moveSuccess0 cmd0 bot0
@@ -679,20 +679,33 @@ parseCommand str = case str of
 cellChar :: Cell -> Char
 cellChar cell = let
     bot = case _bot cell of
-        Nothing -> ""
-        Just (Bot p _) -> case p of
-            P1 -> "1"
-            P2 -> "2"
+        Nothing -> Nothing
+        Just (Bot _ e) -> Just $ case e of
+            E0 -> '0'
+            E1 -> '1'
+            E2 -> '2'
+            E3 -> '3'
+            E4 -> '4'
+            E5 -> '5'
+            E6 -> '6'
+            E7 -> '7'
+            E8 -> '8'
+            E9 -> '9'
+            E10 -> '+'
+        --Just (Bot p _) -> Just $ case p of
+            --P1 -> '1'
+            --P2 -> '2'
     bullet = case _bullets cell of
-        [] -> ""
-        _ -> "B"
+        [] -> Nothing
+        _ -> Just 'B'
     missile = case _missiles cell of
-        [] -> ""
-        _ -> "M"
+        [] -> Nothing
+        _ -> Just 'M'
     landMine = case _landMines cell of
-        [] -> ""
-        _ -> "L"
-    in case bot ++ bullet ++ missile ++ landMine of
+        [] -> Nothing
+        _ -> Just 'L'
+    f = maybeToList
+    in case f bot ++ f bullet ++ f missile ++ f landMine of
         "" -> '.'
         [c] -> c
         _ -> '?'
@@ -721,12 +734,25 @@ newtype ConsoleIO a = ConsoleIO { runConsoleIO :: IO a }
 instance MonadBattleBots ConsoleIO where
     tellArena arena = liftIO $ do
         putStrLn $ showArena arena
-    getCommand _ p = liftIO $ do
+    getCommand p _ = liftIO $ do
         putStr $ show p ++ "> "
         fmap parseCommand getLine
 
 
 --------------------------------------------------------------------------------
+
+
+getPlayer'sBot :: Player -> Arena -> Bot
+getPlayer'sBot p arena = let
+    bots = map fst $ gatherBots arena
+    err = error "getPlayer'sBot: Could not find player's bot."
+    in case bots of
+        [b0@(Bot p0 _), b1@(Bot p1 _)] -> case p == p0 of
+            True -> b0
+            False -> case p == p1 of
+                True -> b1
+                False -> err
+        _ -> err
 
 
 newtype RandomIO a = RandomIO { runRandomIO :: IO a }
@@ -739,15 +765,27 @@ instance MonadBattleBots RandomIO where
         putStrLn "PRESS ENTER"
         _ <- getLine
         return ()
-    getCommand _ _ = do
+    getCommand p arena = liftIO $ do
         dir <- pick allValues
-        pick [
-            DoNothing,
-            Move dir,
-            FireBullet dir,
-            FireMissile dir,
-            DropLandMine dir,
-            FireEmp ]
+        let bot = getPlayer'sBot p arena
+            coords = getBotCoords bot arena
+            coords' = moveDir coords dir
+            cmds = [
+                DoNothing,
+                Move dir,
+                FireBullet dir,
+                FireMissile dir,
+                DropLandMine dir,
+                FireEmp ]
+            cmds' = case coords' of
+                Right _ -> cmds
+                Left _ -> flip filter cmds $ flip notElem [
+                    Move dir,
+                    FireBullet dir,
+                    DropLandMine dir ]
+        cmd <- pick cmds'
+        putStrLn $ show p ++ " - " ++ show cmd
+        return cmd
 
 
 
