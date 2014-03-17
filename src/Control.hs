@@ -3,17 +3,24 @@
 module Controller (
     CommandLine,
     runCommandLine,
+
     RandomIO,
     runRandomIO,
+
+    Executable,
+    ExecutableIO,
+    runExecutableIO,
 ) where
 
 
 import Control.Monad.Random (MonadRandom, getRandomR)
+import Control.Monad.State (MonadState, StateT, evalStateT, gets)
 import Control.Monad.Trans (MonadIO, liftIO)
 import Data.Maybe (maybeToList, listToMaybe)
 import Data.Proxy (Proxy(..))
 import Game
 import GameData
+import System.Process (readProcess)
 import Text.Read (readMaybe)
 import Values
 
@@ -182,6 +189,34 @@ instance MonadBattleBots RandomIO where
         cmd <- pick cmds'
         putStrLn $ show p ++ " - " ++ show cmd
         return cmd
+
+
+--------------------------------------------------------------------------------
+
+
+type Executable = FilePath
+type Executables = (Executable, Executable)
+
+
+newtype ExecutableIO a = ExecutableIO { unExecutableIO :: StateT Executables IO a }
+    deriving (Monad, MonadRandom, MonadIO, MonadState Executables)
+
+
+runExecutableIO :: Executable -> Executable -> ExecutableIO a -> IO a
+runExecutableIO e1 e2 = let
+    st = (e1, e2)
+    in flip evalStateT st . unExecutableIO
+
+
+instance MonadBattleBots ExecutableIO where
+    tellArena _ = return ()
+    getCommand p arena = do
+        exe <- case p of
+            P1 -> gets fst
+            P2 -> gets snd
+        let msg = showArena (Just p) arena
+        out <- liftIO $ readProcess exe [msg] ""
+        return $ parseCommand out
 
 
 
