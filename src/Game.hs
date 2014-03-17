@@ -3,7 +3,16 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 
-module Game where
+module Game (
+    GatherAll(gatherAll),
+    MonadBattleBots(..),
+    Command(..),
+    Winner(..),
+    runMatch,
+    getCell,
+    moveDir,
+    getBotCoords,
+) where
 
 
 import Control.Monad (foldM, unless, replicateM, liftM)
@@ -17,7 +26,6 @@ import Data.Maybe (maybeToList, isJust, fromJust)
 import Data.Ord (comparing)
 import Data.Proxy (Proxy(Proxy))
 import GameData
-import Text.Read (readMaybe)
 import Values (allValues)
 
 
@@ -134,13 +142,6 @@ instance LoseEnergy Bot where
 inBounds :: Coords -> Bool
 inBounds coords = case coords of
     Coords x y -> 0 <= x && x < 10 && 0 <= y && y < 10
-
-
-arenaCoords :: [Coords]
-arenaCoords = do
-    x <- [0 .. 9]
-    y <- [0 .. 9]
-    return $ Coords x y
 
 
 arenaCells :: Arena -> [(Coords, Cell)]
@@ -262,6 +263,11 @@ class (PutCell a b) => GatherAll a b where
     removeAll :: Proxy a -> Arena -> Arena
 
 
+instance GatherAll Bot Maybe where
+    gatherAll _ = gatherBots
+    removeAll _ = removeBots
+
+
 instance GatherAll Bullet Id where
     gatherAll _ = gatherBullets
     removeAll _ = removeBullets
@@ -270,6 +276,11 @@ instance GatherAll Bullet Id where
 instance GatherAll Missile Id where
     gatherAll _ = gatherMissiles
     removeAll _ = removeMissiles
+
+
+instance GatherAll LandMine Id where
+    gatherAll _ = gatherLandMines
+    removeAll _ = removeLandMines
 
 
 --------------------------------------------------------------------------------
@@ -651,141 +662,10 @@ getMatchWinner ws = let
         LT -> Just P2
 
 
-runMatch :: (MonadBattleBots m) => m (Maybe Winner)
-runMatch = liftM getMatchWinner $ replicateM 5 runBout
+runMatch :: (MonadBattleBots m) => Int -> m (Maybe Winner)
+runMatch numBouts = liftM getMatchWinner $ replicateM numBouts runBout
 
 
---------------------------------------------------------------------------------
-
-
-parseCommand :: String -> Command
-parseCommand str = case str of
-    "0" -> DoNothing
-    "P" -> FireEmp
-    'B' : ' ' : rest -> case readMaybe rest of
-        Nothing -> DoNothing
-        Just dir -> FireBullet dir
-    'M' : ' ' : rest -> case readMaybe rest of
-        Nothing -> DoNothing
-        Just dir -> FireMissile dir
-    'L' : ' ' : rest -> case readMaybe rest of
-        Nothing -> DoNothing
-        Just dir -> DropLandMine dir
-    _ -> case readMaybe str of
-        Nothing -> DoNothing
-        Just dir -> Move dir
-
-
-cellChar :: Cell -> Char
-cellChar cell = let
-    bot = case _bot cell of
-        Nothing -> Nothing
-        Just (Bot _ e) -> Just $ case e of
-            E0 -> '0'
-            E1 -> '1'
-            E2 -> '2'
-            E3 -> '3'
-            E4 -> '4'
-            E5 -> '5'
-            E6 -> '6'
-            E7 -> '7'
-            E8 -> '8'
-            E9 -> '9'
-            E10 -> '+'
-        --Just (Bot p _) -> Just $ case p of
-            --P1 -> '1'
-            --P2 -> '2'
-    bullet = case _bullets cell of
-        [] -> Nothing
-        _ -> Just 'B'
-    missile = case _missiles cell of
-        [] -> Nothing
-        _ -> Just 'M'
-    landMine = case _landMines cell of
-        [] -> Nothing
-        _ -> Just 'L'
-    f = maybeToList
-    in case f bot ++ f bullet ++ f missile ++ f landMine of
-        "" -> '.'
-        [c] -> c
-        _ -> '?'
-
-
-showArena :: Arena -> String
-showArena arena = let
-    rows = [0 .. 9]
-    cols = [0 .. 9]
-    showRow row = let
-        f col = let
-            coords = Coords col row
-            cell = getCell coords arena
-            in cellChar cell
-        in map f cols
-    in unlines $ map showRow rows
-
-
---------------------------------------------------------------------------------
-
-
-newtype ConsoleIO a = ConsoleIO { runConsoleIO :: IO a }
-    deriving (Monad, MonadRandom, MonadIO)
-
-
-instance MonadBattleBots ConsoleIO where
-    tellArena arena = liftIO $ do
-        putStrLn $ showArena arena
-    getCommand p _ = liftIO $ do
-        putStr $ show p ++ "> "
-        fmap parseCommand getLine
-
-
---------------------------------------------------------------------------------
-
-
-getPlayer'sBot :: Player -> Arena -> Bot
-getPlayer'sBot p arena = let
-    bots = map fst $ gatherBots arena
-    err = error "getPlayer'sBot: Could not find player's bot."
-    in case bots of
-        [b0@(Bot p0 _), b1@(Bot p1 _)] -> case p == p0 of
-            True -> b0
-            False -> case p == p1 of
-                True -> b1
-                False -> err
-        _ -> err
-
-
-newtype RandomIO a = RandomIO { runRandomIO :: IO a }
-    deriving (Monad, MonadRandom, MonadIO)
-
-
-instance MonadBattleBots RandomIO where
-    tellArena arena = liftIO $ do
-        putStrLn $ showArena arena
-        putStrLn "PRESS ENTER"
-        _ <- getLine
-        return ()
-    getCommand p arena = liftIO $ do
-        dir <- pick allValues
-        let bot = getPlayer'sBot p arena
-            coords = getBotCoords bot arena
-            coords' = moveDir coords dir
-            cmds = [
-                DoNothing,
-                Move dir,
-                FireBullet dir,
-                FireMissile dir,
-                DropLandMine dir,
-                FireEmp ]
-            cmds' = case coords' of
-                Right _ -> cmds
-                Left _ -> flip filter cmds $ flip notElem [
-                    Move dir,
-                    FireBullet dir,
-                    DropLandMine dir ]
-        cmd <- pick cmds'
-        putStrLn $ show p ++ " - " ++ show cmd
-        return cmd
 
 
 
