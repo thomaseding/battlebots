@@ -533,10 +533,10 @@ runCommands = do
         reissueMove prevMoveSuccess cmd bot = case prevMoveSuccess of
             Success -> return ()
             Failure -> issueMove cmd bot >> return ()
+    cmd0 <- getCommand p0 arena
+    cmd1 <- getCommand p1 arena
     empActive <- gets $ isJust . _emp
     unless empActive $ do
-        cmd0 <- getCommand p0 arena
-        cmd1 <- getCommand p1 arena
         moveSuccess0 <- issueMove cmd0 bot0
         moveSuccess1 <- issueMove cmd1 bot1
         reissueMove moveSuccess0 cmd0 bot0
