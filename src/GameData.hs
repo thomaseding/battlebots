@@ -1,6 +1,19 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
-module GameData where
+module GameData (
+    Energy(..),
+    Player(..),
+    Bot(..),
+    LandMine(..),
+    Dir(..),
+    Coords(..),
+    Bullet(..),
+    Missile(..),
+    EmpDuration(..),
+    Cell(..),
+    Arena(..),
+    emptyCell,
+) where
 
 
 import Data.Map (Map)
@@ -115,13 +128,6 @@ data EmpDuration = EmpTwoRounds | EmpOneRound
 
 instance Values EmpDuration where
     allValues = [toEnum 0 ..]
-
-
---------------------------------------------------------------------------------
-
-
-newtype Emp = Emp (Maybe EmpDuration)
-    deriving (Show, Read, Eq, Ord)
 
 
 --------------------------------------------------------------------------------
