@@ -510,7 +510,7 @@ getGameOver = do
     time <- gets _time
     let bots = map fst $ gatherBots arena
         aliveBots = filter isAlive bots
-    return $ bots /= aliveBots && time < 1000
+    return $ bots /= aliveBots || time >= 1000
 
 
 getWinner :: (MonadBattleBots m) => BoutEngine m (Maybe Winner)
