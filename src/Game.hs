@@ -557,8 +557,8 @@ runCommands = do
         moveSuccess1 <- issueMove cmd1 bot1
         reissueMove moveSuccess0 cmd0 bot0
         reissueMove moveSuccess1 cmd1 bot1
-        issueNonMove cmd0 bot0
-        issueNonMove cmd1 bot1
+    issueNonMove cmd0 bot0
+    issueNonMove cmd1 bot1
 
 
 data Success = Failure | Success
