@@ -133,7 +133,7 @@ showArena mDenseChar mPlayer arena = gridChars ++ fullInfo
             in transformCell fe fbot fb fm fl fxs
         showCoords (Coords x y) = show x ++ " " ++ show y
         fullInfo = let
-            bots = gatherAll (Proxy :: Proxy Bot) arena
+            bots = putPlayer'sBotFirst mPlayer $ gatherAll (Proxy :: Proxy Bot) arena
             bullets = gatherAll (Proxy :: Proxy Bullet) arena
             missiles = gatherAll (Proxy :: Proxy Missile) arena
             landMines = gatherAll (Proxy :: Proxy LandMine) arena
@@ -143,6 +143,16 @@ showArena mDenseChar mPlayer arena = gridChars ++ fullInfo
             fl coords LandMine = "L " ++ showCoords coords
             g = map . uncurry . flip
             in unlines $ g fbot bots ++ g fb bullets ++ g fm missiles ++ g fl landMines
+
+
+putPlayer'sBotFirst :: Maybe Player -> [(Bot, Coords)] -> [(Bot, Coords)]
+putPlayer'sBotFirst mPlayer bots = case mPlayer of
+    Nothing -> bots
+    Just p -> let
+        owned (Bot p' _, _) = p == p'
+        bs = filter owned bots
+        bs' = filter (not . owned) bots
+        in bs ++ bs'
 
 
 --------------------------------------------------------------------------------
