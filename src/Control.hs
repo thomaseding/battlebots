@@ -213,7 +213,11 @@ runProgramControl prog1 prog2 = let
 
 
 instance MonadBattleBots ProgramControl where
-    tellArena _ = return ()
+    tellArena arena = liftIO $ do
+        putStrLn $ showArena Nothing arena
+        putStrLn "PRESS ENTER"
+        _ <- getLine
+        return ()
     getCommand p arena = do
         prog <- case p of
             P1 -> gets fst
@@ -222,9 +226,12 @@ instance MonadBattleBots ProgramControl where
             Program exe args = prog
             runProg = liftIO $ readProcessWithExitCode exe (args ++ [msg]) ""
         (exitCode, outStr, _) <- runProg
-        case exitCode of
-            ExitSuccess -> return $ parseCommand $ trim outStr
-            ExitFailure _ -> return UnknownCommand
+        let trimmedOutStr = trim outStr
+            command = case exitCode of
+                ExitSuccess -> parseCommand trimmedOutStr
+                ExitFailure _ -> UnknownCommand
+        liftIO $ putStrLn $ show p ++ ": " ++ show command
+        return command
 
 
 trim :: String -> String
