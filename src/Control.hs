@@ -235,6 +235,7 @@ instance MonadBattleBots ProgramControl where
         time = _time boutSt
         emp = _emp boutSt
         in liftIO $ do
+            putStrLn ""
             putStrLn $ "Time: " ++ show time
             putStrLn $ "Emp: " ++ show emp
             putStrLn $ showArena (Just '?') Nothing arena
