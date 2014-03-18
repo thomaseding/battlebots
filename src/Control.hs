@@ -245,11 +245,11 @@ instance MonadBattleBots ProgramControl where
         let msg = showArena Nothing (Just p) arena ++ "\n"
             Program exe args = prog
             runProg = liftIO $ readProcessWithExitCode exe (args ++ [msg]) ""
-        (exitCode, outStr, _) <- runProg
-        let trimmedOutStr = trim outStr
-            command = case exitCode of
-                ExitSuccess -> parseCommand trimmedOutStr
-                ExitFailure _ -> UnknownCommand
+        (exitCode, outStr, err) <- runProg
+        let trimmedOutStr = trim $ case exitCode of
+                ExitSuccess -> outStr
+                exitFailure -> show exitFailure ++ ": " ++ err
+            command = parseCommand trimmedOutStr
         liftIO $ do
             putStrLn ""
             putStrLn $ show p ++ ": " ++ trimmedOutStr
