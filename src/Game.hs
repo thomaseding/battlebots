@@ -332,13 +332,7 @@ tickProjectile p coords arena = let
     proxy = mkProxy p
     in case moveProjectile proxy coords dir arena of
         Left collision -> explodeProjectile proxy collision arena
-        Right coords' -> let
-            cell = getCell coords' arena
-            in case _bot cell of
-                Nothing -> runId $ putCell coords' p arena
-                Just _ -> let
-                    collision = CollisionCoords coords'
-                    in explodeProjectile proxy collision arena
+        Right coords' -> runId $ putCell coords' p arena
 
 
 repeatM :: (Monad m) => Int -> (a -> m a) -> a -> m a
