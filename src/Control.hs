@@ -109,8 +109,8 @@ gridify arena = let
     in map showRow rows
 
 
-showArena :: Maybe Player -> Arena -> String
-showArena mPlayer arena = gridChars ++ fullInfo
+showArena :: Maybe Char -> Maybe Player -> Arena -> String
+showArena mDenseChar mPlayer arena = gridChars ++ fullInfo
     where
         grid = gridify arena
         gridChars = unlines $ map (map cellToChar) grid
@@ -127,7 +127,9 @@ showArena mPlayer arena = gridChars ++ fullInfo
             fb _ = 'B'
             fm _ = 'M'
             fl _ = 'L'
-            fxs _ = '?'
+            fxs xs = case mDenseChar of
+                Nothing -> head xs
+                Just c -> c
             in transformCell fe fbot fb fm fl fxs
         showCoords (Coords x y) = show x ++ " " ++ show y
         fullInfo = let
@@ -154,7 +156,7 @@ instance MonadBattleBots CommandLineControl where
     tellBout boutSt = let
         arena = _arena boutSt
         in liftIO $ do
-            putStrLn $ showArena Nothing arena
+            putStrLn $ showArena (Just '?') Nothing arena
     getCommand p _ = liftIO $ do
         putStr $ show p ++ "> "
         fmap parseCommand getLine
@@ -171,7 +173,7 @@ instance MonadBattleBots RandomControl where
     tellBout boutSt = let
         arena = _arena boutSt
         in liftIO $ do
-            putStrLn $ showArena Nothing arena
+            putStrLn $ showArena (Just '?') Nothing arena
             putStrLn "PRESS ENTER"
             _ <- getLine
             return ()
@@ -224,7 +226,7 @@ instance MonadBattleBots ProgramControl where
         in liftIO $ do
             putStrLn $ "Time: " ++ show time
             putStrLn $ "Emp: " ++ show emp
-            putStrLn $ showArena Nothing arena
+            putStrLn $ showArena (Just '?') Nothing arena
             putStrLn "^-- PRESS ENTER --^"
             _ <- getLine
             return ()
@@ -232,7 +234,7 @@ instance MonadBattleBots ProgramControl where
         prog <- case p of
             P1 -> gets fst
             P2 -> gets snd
-        let msg = showArena (Just p) arena
+        let msg = showArena Nothing (Just p) arena
             Program exe args = prog
             runProg = liftIO $ readProcessWithExitCode exe (args ++ [msg]) ""
         (exitCode, outStr, _) <- runProg
