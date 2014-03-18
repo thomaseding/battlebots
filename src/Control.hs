@@ -151,8 +151,10 @@ newtype CommandLineControl a = CommandLineControl { runCommandLineControl :: IO 
 
 
 instance MonadBattleBots CommandLineControl where
-    tellArena arena = liftIO $ do
-        putStrLn $ showArena Nothing arena
+    tellBout boutSt = let
+        arena = _arena boutSt
+        in liftIO $ do
+            putStrLn $ showArena Nothing arena
     getCommand p _ = liftIO $ do
         putStr $ show p ++ "> "
         fmap parseCommand getLine
@@ -166,11 +168,13 @@ newtype RandomControl a = RandomControl { runRandomControl :: IO a }
 
 
 instance MonadBattleBots RandomControl where
-    tellArena arena = liftIO $ do
-        putStrLn $ showArena Nothing arena
-        putStrLn "PRESS ENTER"
-        _ <- getLine
-        return ()
+    tellBout boutSt = let
+        arena = _arena boutSt
+        in liftIO $ do
+            putStrLn $ showArena Nothing arena
+            putStrLn "PRESS ENTER"
+            _ <- getLine
+            return ()
     getCommand p arena = liftIO $ do
         dir <- pick allValues
         let bot = getPlayer'sBot p arena
@@ -213,11 +217,17 @@ runProgramControl prog1 prog2 = let
 
 
 instance MonadBattleBots ProgramControl where
-    tellArena arena = liftIO $ do
-        putStrLn $ showArena Nothing arena
-        putStrLn "PRESS ENTER"
-        _ <- getLine
-        return ()
+    tellBout boutSt = let
+        arena = _arena boutSt
+        time = _time boutSt
+        emp = _emp boutSt
+        in liftIO $ do
+            putStrLn $ "Time: " ++ show time
+            putStrLn $ "Emp: " ++ show emp
+            putStrLn $ showArena Nothing arena
+            putStrLn "^-- PRESS ENTER --^"
+            _ <- getLine
+            return ()
     getCommand p arena = do
         prog <- case p of
             P1 -> gets fst

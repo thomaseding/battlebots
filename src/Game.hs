@@ -8,6 +8,7 @@ module Game (
     MonadBattleBots(..),
     Command(..),
     Winner(..),
+    BoutState(..),
     runMatch,
     getCell,
     moveDir,
@@ -17,7 +18,7 @@ module Game (
 
 import Control.Monad (foldM, unless, replicateM, liftM)
 import Control.Monad.Random (MonadRandom(..))
-import Control.Monad.State.Strict (gets, modify, evalStateT, StateT, MonadState)
+import Control.Monad.State.Strict (gets, modify, evalStateT, StateT, MonadState, get)
 import Control.Monad.Trans (MonadTrans(..), MonadIO(..))
 import Data.Either (rights)
 import Data.List (sortBy)
@@ -438,7 +439,7 @@ data Command
 
 class (MonadRandom m) => MonadBattleBots m where
     getCommand :: Player -> Arena -> m Command
-    tellArena :: Arena -> m ()
+    tellBout :: BoutState -> m ()
 
 
 data BoutState = BoutState {
@@ -461,7 +462,7 @@ instance (MonadRandom m) => MonadRandom (BoutEngine m) where
 
 instance (MonadBattleBots m) => MonadBattleBots (BoutEngine m) where
     getCommand p = lift . getCommand p
-    tellArena = lift . tellArena
+    tellBout = lift . tellBout
 
 
 setupBoutM :: (MonadRandom m) => m BoutState
@@ -495,10 +496,10 @@ runBout = do
             gameOver <- getGameOver
             case gameOver of
                 True -> do
-                    tellArena =<< gets _arena
+                    tellBout =<< get
                     getWinner
                 False -> do
-                    tellArena =<< gets _arena
+                    tellBout =<< get
                     tickBout
                     go
 
