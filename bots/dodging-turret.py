@@ -1,3 +1,32 @@
+import sys
+
+def Position(arena, element):
+    y = [i for i,j in enumerate(arena) if element in arena[i]][0]
+    x = arena[y].index(element)
+    return (x,y)
+
+def Direction(coord1, coord2):
+    d0 = coord1[0]-coord2[0]
+    d1 = coord1[1]-coord2[1]
+    if d1!=0:
+        a = ['N','S'][d1<0]
+    else: a = ""
+    if d0!=0:
+        b = ['W','E'][d0<0]
+    else: b = ""
+    return a+b
+
+def GetPath(coord, direction):
+    if direction=='N': path = [(coord[0],coord[1]-i) for i in xrange(3)]
+    if direction=='S': path = [(coord[0],coord[1]+i) for i in xrange(3)]
+    if direction=='E': path = [(coord[0]+i,coord[1]) for i in xrange(3)]
+    if direction=='W': path = [(coord[0]-i,coord[1]) for i in xrange(3)]
+    if direction=='NE': path = [(coord[0]+i,coord[1]-i) for i in xrange(3)]
+    if direction=='NW': path = [(coord[0]-i,coord[1]-i) for i in xrange(3)]
+    if direction=='SE': path = [(coord[0]+i,coord[1]+i) for i in xrange(3)]
+    if direction=='SW': path = [(coord[0]-i,coord[1]+i) for i in xrange(3)]
+    return path
+
 def Danger(coord, stuff):
     if len(stuff):
         s = [i.split(" ") for i in stuff]
