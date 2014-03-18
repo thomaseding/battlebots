@@ -32,6 +32,10 @@ import Values
 --------------------------------------------------------------------------------
 
 
+trim :: String -> String
+trim = reverse . dropWhile isSpace . reverse . dropWhile isSpace
+
+
 pick :: (MonadRandom m) => [a] -> m a
 pick xs = case length xs of
     0 -> error "pick: empty list"
@@ -260,10 +264,6 @@ instance MonadBattleBots ProgramControl where
                 _ <- getLine
                 return ()
         return command
-
-
-trim :: String -> String
-trim = reverse . dropWhile isSpace . reverse . dropWhile isSpace
 
 
 
