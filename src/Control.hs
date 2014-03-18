@@ -21,7 +21,8 @@ import Data.Maybe (maybeToList, listToMaybe)
 import Data.Proxy (Proxy(..))
 import Game
 import GameData
-import System.Process (readProcess)
+import System.Exit (ExitCode(..))
+import System.Process (readProcessWithExitCode)
 import Text.Read (readMaybe)
 import Values
 
@@ -218,8 +219,11 @@ instance MonadBattleBots ProgramControl where
             P2 -> gets snd
         let msg = showArena (Just p) arena
             Program exe args = prog
-        out <- liftIO $ readProcess exe (args ++ [msg]) ""
-        return $ parseCommand out
+            runProg = liftIO $ readProcessWithExitCode exe (args ++ [msg]) ""
+        (exitCode, outStr, _) <- runProg
+        case exitCode of
+            ExitSuccess -> return $ parseCommand outStr
+            ExitFailure _ -> return UnknownCommand
 
 
 
