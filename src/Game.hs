@@ -16,7 +16,7 @@ module Game (
 ) where
 
 
-import Control.Monad (foldM, unless, replicateM, liftM)
+import Control.Monad (foldM, when, replicateM, liftM)
 import Control.Monad.Random (MonadRandom(..))
 import Control.Monad.State.Strict (gets, modify, evalStateT, StateT, MonadState, get)
 import Control.Monad.Trans (MonadTrans(..), MonadIO(..))
@@ -525,20 +525,31 @@ getWinner = do
 
 tickBout :: (MonadBattleBots m) => BoutEngine m ()
 tickBout = do
-    runCommands
+    emp <- gets _emp
     modify $ \st -> let
-        emp = case _emp st of
+        emp' = case emp of
             Nothing -> Nothing
             Just EmpTwoRounds -> Just EmpOneRound
             Just EmpOneRound -> Nothing
-        in st {
-            _arena = tickArena $ _arena st,
-            _time = _time st + 1,
-            _emp = emp }
+        in st { _emp = emp' }
+    runCommands $ toParalisis emp
+    modify $ \st -> st {
+        _arena = tickArena $ _arena st,
+        _time = _time st + 1 }
 
 
-runCommands :: (MonadBattleBots m) => BoutEngine m ()
-runCommands = do
+data Paralisis = Paralized | NotParalized
+    deriving (Show, Eq, Ord)
+
+
+toParalisis :: Maybe EmpDuration -> Paralisis
+toParalisis emp = case emp of
+    Nothing -> NotParalized
+    Just _ -> Paralized
+
+
+runCommands :: (MonadBattleBots m) => Paralisis -> BoutEngine m ()
+runCommands paralisis = do
     arena <- gets _arena
     let bots = map fst $ gatherBots arena
         (bot0, bot1) = case bots of
@@ -551,8 +562,7 @@ runCommands = do
             Failure -> issueMove cmd bot >> return ()
     cmd0 <- getCommand p0 arena
     cmd1 <- getCommand p1 arena
-    empActive <- gets $ isJust . _emp
-    unless empActive $ do
+    when (paralisis == NotParalized) $ do
         moveSuccess0 <- issueMove cmd0 bot0
         moveSuccess1 <- issueMove cmd1 bot1
         reissueMove moveSuccess0 cmd0 bot0
