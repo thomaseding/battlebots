@@ -1,15 +1,16 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Control (
-    CommandLine,
-    runCommandLine,
+    CommandLineControl,
+    runCommandLineControl,
 
-    RandomIO,
-    runRandomIO,
+    RandomControl,
+    runRandomControl,
 
-    Executable,
-    ExecutableIO,
-    runExecutableIO,
+    Arg,
+    Program(..),
+    ProgramControl,
+    runProgramControl,
 ) where
 
 
@@ -143,11 +144,11 @@ showArena mPlayer arena = gridChars ++ fullInfo
 --------------------------------------------------------------------------------
 
 
-newtype CommandLine a = CommandLine { runCommandLine :: IO a }
+newtype CommandLineControl a = CommandLineControl { runCommandLineControl :: IO a }
     deriving (Monad, MonadRandom, MonadIO)
 
 
-instance MonadBattleBots CommandLine where
+instance MonadBattleBots CommandLineControl where
     tellArena arena = liftIO $ do
         putStrLn $ showArena Nothing arena
     getCommand p _ = liftIO $ do
@@ -158,11 +159,11 @@ instance MonadBattleBots CommandLine where
 --------------------------------------------------------------------------------
 
 
-newtype RandomIO a = RandomIO { runRandomIO :: IO a }
+newtype RandomControl a = RandomControl { runRandomControl :: IO a }
     deriving (Monad, MonadRandom, MonadIO)
 
 
-instance MonadBattleBots RandomIO where
+instance MonadBattleBots RandomControl where
     tellArena arena = liftIO $ do
         putStrLn $ showArena Nothing arena
         putStrLn "PRESS ENTER"
@@ -194,28 +195,30 @@ instance MonadBattleBots RandomIO where
 --------------------------------------------------------------------------------
 
 
-type Executable = FilePath
-type Executables = (Executable, Executable)
+type Arg = String
+data Program = Program FilePath [Arg]
+type Programs = (Program, Program)
 
 
-newtype ExecutableIO a = ExecutableIO { unExecutableIO :: StateT Executables IO a }
-    deriving (Monad, MonadRandom, MonadIO, MonadState Executables)
+newtype ProgramControl a = ExecutableIO { unProgramControl :: StateT Programs IO a }
+    deriving (Monad, MonadRandom, MonadIO, MonadState Programs)
 
 
-runExecutableIO :: Executable -> Executable -> ExecutableIO a -> IO a
-runExecutableIO e1 e2 = let
-    st = (e1, e2)
-    in flip evalStateT st . unExecutableIO
+runProgramControl :: Program -> Program -> ProgramControl a -> IO a
+runProgramControl prog1 prog2 = let
+    st = (prog1, prog2)
+    in flip evalStateT st . unProgramControl
 
 
-instance MonadBattleBots ExecutableIO where
+instance MonadBattleBots ProgramControl where
     tellArena _ = return ()
     getCommand p arena = do
-        exe <- case p of
+        prog <- case p of
             P1 -> gets fst
             P2 -> gets snd
         let msg = showArena (Just p) arena
-        out <- liftIO $ readProcess exe [msg] ""
+            Program exe args = prog
+        out <- liftIO $ readProcess exe (args ++ [msg]) ""
         return $ parseCommand out
 
 
