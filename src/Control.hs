@@ -240,7 +240,9 @@ instance MonadBattleBots ProgramControl where
             command = case exitCode of
                 ExitSuccess -> parseCommand trimmedOutStr
                 ExitFailure _ -> UnknownCommand
-        liftIO $ putStrLn $ show p ++ ": " ++ show command
+        liftIO $ do
+            putStrLn $ show p ++ ": " ++ trimmedOutStr
+            putStrLn $ show p ++ ": " ++ show command
         return command
 
 
