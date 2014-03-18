@@ -119,8 +119,8 @@ showArena mPlayer arena = gridChars ++ fullInfo
                 P1 -> '1'
                 P2 -> '2'
             Just p' -> case p == p' of
-                True -> 'X'
-                False -> 'Y'
+                True -> 'Y'
+                False -> 'X'
         cellToChar = let
             fe _ = '.'
             fbot (Bot p _) = playerToChar p
