@@ -329,7 +329,7 @@ tickProjectile :: (Projectile a) => a -> Coords -> Arena -> Arena
 tickProjectile p coords arena = let
     dir = projectileDir p
     proxy = mkProxy p
-    in case moveProjectile proxy coords dir of
+    in case moveProjectile proxy coords dir arena of
         Left collision -> explodeProjectile proxy collision arena
         Right coords' -> let
             cell = getCell coords' arena
@@ -346,10 +346,15 @@ repeatM n f x = let
     in foldM g x $ replicate n ()
 
 
-moveProjectile :: (Projectile a) => Proxy a -> Coords -> Dir -> Either CollisionCoords Coords
-moveProjectile proxy coords dir = let
-    move = flip moveDir dir
-    in case return coords >>= repeatM (unSpeed $ projectileSpeed proxy) move of
+moveProjectile :: (Projectile a) => Proxy a -> Coords -> Dir -> Arena -> Either CollisionCoords Coords
+moveProjectile proxy coords dir arena = let
+    move coords = case moveDir coords dir of
+        Left coords' -> Left coords'
+        Right coords' -> case _bot $ getCell coords' arena of
+            Just _ -> Left coords'
+            Nothing -> Right coords'
+    projSpeed = projectileSpeed proxy
+    in case return coords >>= repeatM (unSpeed projSpeed) move of
         Left coords' -> Left $ CollisionCoords coords'
         Right coords' -> Right coords'
 
