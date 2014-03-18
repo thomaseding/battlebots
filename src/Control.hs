@@ -14,6 +14,7 @@ module Control (
 ) where
 
 
+import Control.Monad (when)
 import Control.Monad.Random (MonadRandom, getRandomR)
 import Control.Monad.State (MonadState, StateT, evalStateT, gets)
 import Control.Monad.Trans (MonadIO, liftIO)
@@ -237,9 +238,6 @@ instance MonadBattleBots ProgramControl where
             putStrLn $ "Time: " ++ show time
             putStrLn $ "Emp: " ++ show emp
             putStrLn $ showArena (Just '?') Nothing arena
-            putStrLn "^-- PRESS ENTER --^"
-            _ <- getLine
-            return ()
     getCommand p arena = do
         prog <- case p of
             P1 -> gets fst
@@ -255,6 +253,10 @@ instance MonadBattleBots ProgramControl where
         liftIO $ do
             putStrLn $ show p ++ ": " ++ trimmedOutStr
             putStrLn $ show p ++ ": " ++ show command
+            when (p == P2) $ do
+                putStr "\nPRESS ENTER"
+                _ <- getLine
+                return ()
         return command
 
 
