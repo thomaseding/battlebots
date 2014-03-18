@@ -17,6 +17,7 @@ module Control (
 import Control.Monad.Random (MonadRandom, getRandomR)
 import Control.Monad.State (MonadState, StateT, evalStateT, gets)
 import Control.Monad.Trans (MonadIO, liftIO)
+import Data.Char (isSpace)
 import Data.Maybe (maybeToList, listToMaybe)
 import Data.Proxy (Proxy(..))
 import Game
@@ -222,18 +223,12 @@ instance MonadBattleBots ProgramControl where
             runProg = liftIO $ readProcessWithExitCode exe (args ++ [msg]) ""
         (exitCode, outStr, _) <- runProg
         case exitCode of
-            ExitSuccess -> return $ parseCommand outStr
+            ExitSuccess -> return $ parseCommand $ trim outStr
             ExitFailure _ -> return UnknownCommand
 
 
-
-
-
-
-
-
-
-
+trim :: String -> String
+trim = reverse . dropWhile isSpace . reverse . dropWhile isSpace
 
 
 
