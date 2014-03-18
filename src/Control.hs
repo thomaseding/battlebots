@@ -111,7 +111,7 @@ gridify arena = let
 
 
 showArena :: Maybe Char -> Maybe Player -> Arena -> String
-showArena mDenseChar mPlayer arena = gridChars ++ fullInfo
+showArena mDenseChar mPlayer arena = trim $ gridChars ++ fullInfo
     where
         grid = gridify arena
         gridChars = unlines $ map (map cellToChar) grid
@@ -242,7 +242,7 @@ instance MonadBattleBots ProgramControl where
         prog <- case p of
             P1 -> gets fst
             P2 -> gets snd
-        let msg = showArena Nothing (Just p) arena
+        let msg = showArena Nothing (Just p) arena ++ "\n"
             Program exe args = prog
             runProg = liftIO $ readProcessWithExitCode exe (args ++ [msg]) ""
         (exitCode, outStr, _) <- runProg
@@ -251,6 +251,7 @@ instance MonadBattleBots ProgramControl where
                 ExitSuccess -> parseCommand trimmedOutStr
                 ExitFailure _ -> UnknownCommand
         liftIO $ do
+            putStrLn ""
             putStrLn $ show p ++ ": " ++ trimmedOutStr
             putStrLn $ show p ++ ": " ++ show command
             when (p == P2) $ do
