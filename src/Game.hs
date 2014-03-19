@@ -16,7 +16,7 @@ module Game (
 ) where
 
 
-import Control.Monad (foldM, when, replicateM, liftM)
+import Control.Monad (foldM, unless, replicateM, liftM)
 import Control.Monad.Random (MonadRandom(..))
 import Control.Monad.State.Strict (gets, modify, evalStateT, StateT, MonadState, get)
 import Control.Monad.Trans (MonadTrans(..), MonadIO(..))
@@ -342,14 +342,14 @@ repeatM n f x = let
 
 
 moveProjectile :: (Projectile a) => Proxy a -> Coords -> Dir -> Arena -> Either CollisionCoords Coords
-moveProjectile proxy coords dir arena = let
+moveProjectile proxy inCoords dir arena = let
     move coords = case moveDir coords dir of
         Left coords' -> Left coords'
         Right coords' -> case _bot $ getCell coords' arena of
             Just _ -> Left coords'
             Nothing -> Right coords'
     projSpeed = projectileSpeed proxy
-    in case return coords >>= repeatM (unSpeed projSpeed) move of
+    in case return inCoords >>= repeatM (unSpeed projSpeed) move of
         Left coords' -> Left $ CollisionCoords coords'
         Right coords' -> Right coords'
 
@@ -432,7 +432,7 @@ data Command
 
 
 class (MonadRandom m) => MonadBattleBots m where
-    getCommand :: Player -> Arena -> m Command
+    getCommand :: Player -> BoutState -> m Command
     tellBout :: BoutState -> m ()
 
 
@@ -525,33 +525,25 @@ getWinner = do
 
 tickBout :: (MonadBattleBots m) => BoutEngine m ()
 tickBout = do
-    emp <- gets _emp
+    runCommands <- getCommands
     modify $ \st -> let
-        emp' = case emp of
+        emp' = case _emp st of
             Nothing -> Nothing
             Just EmpTwoRounds -> Just EmpOneRound
             Just EmpOneRound -> Nothing
         in st { _emp = emp' }
-    runCommands $ toParalisis emp
+    runCommands
     modify $ \st -> st {
         _arena = tickArena $ _arena st,
         _time = _time st + 1 }
 
 
-data Paralisis = Paralized | NotParalized
-    deriving (Show, Eq, Ord)
-
-
-toParalisis :: Maybe EmpDuration -> Paralisis
-toParalisis emp = case emp of
-    Nothing -> NotParalized
-    Just _ -> Paralized
-
-
-runCommands :: (MonadBattleBots m) => Paralisis -> BoutEngine m ()
-runCommands paralisis = do
-    arena <- gets _arena
-    let bots = map fst $ gatherBots arena
+getCommands :: (MonadBattleBots m) => BoutEngine m (BoutEngine m ())
+getCommands = do
+    boutSt <- get
+    let arena = _arena boutSt
+        empActive = isJust $ _emp boutSt
+        bots = map fst $ gatherBots arena
         (bot0, bot1) = case bots of
             [b0, b1] -> (b0, b1)
             _ -> error "tickBout: The impossible just happened."
@@ -560,18 +552,20 @@ runCommands paralisis = do
         reissueMove prevMoveSuccess cmd bot = case prevMoveSuccess of
             Success -> return ()
             Failure -> issueMove cmd bot >> return ()
-    cmd0 <- getCommand p0 arena
-    cmd1 <- getCommand p1 arena
-    when (paralisis == NotParalized) $ do
-        moveSuccess0 <- issueMove cmd0 bot0
-        moveSuccess1 <- issueMove cmd1 bot1
-        reissueMove moveSuccess0 cmd0 bot0
-        reissueMove moveSuccess1 cmd1 bot1
-    issueNonMove cmd0 bot0
-    issueNonMove cmd1 bot1
+    cmd0 <- getCommand p0 boutSt
+    cmd1 <- getCommand p1 boutSt
+    return $ do
+        unless empActive $ do
+            moveSuccess0 <- issueMove cmd0 bot0
+            moveSuccess1 <- issueMove cmd1 bot1
+            reissueMove moveSuccess0 cmd0 bot0
+            reissueMove moveSuccess1 cmd1 bot1
+        issueNonMove cmd0 bot0
+        issueNonMove cmd1 bot1
 
 
 data Success = Failure | Success
+    deriving (Show, Eq, Ord)
 
 
 issueMove :: (MonadBattleBots m) => Command -> Bot -> BoutEngine m Success

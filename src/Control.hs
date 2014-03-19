@@ -19,6 +19,8 @@ import Control.Monad.Random (MonadRandom, getRandomR)
 import Control.Monad.State (MonadState, StateT, evalStateT, gets)
 import Control.Monad.Trans (MonadIO, liftIO)
 import Data.Char (isSpace)
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Maybe (maybeToList, listToMaybe)
 import Data.Proxy (Proxy(..))
 import Game
@@ -192,9 +194,10 @@ instance MonadBattleBots RandomControl where
             putStrLn "PRESS ENTER"
             _ <- getLine
             return ()
-    getCommand p arena = liftIO $ do
+    getCommand p boutSt = liftIO $ do
         dir <- pick allValues
-        let bot = getPlayer'sBot p arena
+        let arena = _arena boutSt
+            bot = getPlayer'sBot p arena
             coords = getBotCoords bot arena
             coords' = moveDir coords dir
             cmds = [
@@ -219,7 +222,12 @@ instance MonadBattleBots RandomControl where
 
 
 type Arg = String
+
+
 data Program = Program FilePath [Arg]
+    deriving (Show, Eq, Ord)
+
+
 type Programs = (Program, Program)
 
 
@@ -243,27 +251,113 @@ instance MonadBattleBots ProgramControl where
             putStrLn $ "Time: " ++ show time
             putStrLn $ "Emp: " ++ show emp
             putStrLn $ showArena (Just '?') Nothing arena
-    getCommand p arena = do
+    getCommand p boutSt = do
+        let arena = _arena boutSt
         prog <- case p of
             P1 -> gets fst
             P2 -> gets snd
-        let msg = showArena Nothing (Just p) arena ++ "\n"
-            Program exe args = prog
-            runProg = liftIO $ readProcessWithExitCode exe (args ++ [msg]) ""
-        (exitCode, outStr, err) <- runProg
-        let trimmedOutStr = trim $ case exitCode of
-                ExitSuccess -> outStr
-                exitFailure -> show exitFailure ++ ": " ++ err
-            command = parseCommand trimmedOutStr
-        liftIO $ do
+        getCommandFromProgram prog p arena
+
+
+getCommandFromProgram :: (MonadIO m) => Program -> Player -> Arena -> m Command
+getCommandFromProgram prog p arena = do
+    let msg = showArena Nothing (Just p) arena ++ "\n"
+        Program exe args = prog
+        runProg = liftIO $ readProcessWithExitCode exe (args ++ [msg]) ""
+    (exitCode, outStr, err) <- runProg
+    let trimmedOutStr = trim $ case exitCode of
+            ExitSuccess -> outStr
+            exitFailure -> show exitFailure ++ ": " ++ err
+        command = parseCommand trimmedOutStr
+    liftIO $ do
+        putStrLn ""
+        putStrLn $ show p ++ ": " ++ trimmedOutStr
+        putStrLn $ show p ++ ": " ++ show command
+        when (p == P2) $ do
+            putStr "\nPRESS ENTER"
+            _ <- getLine
+            return ()
+    return command
+
+
+--------------------------------------------------------------------------------
+
+
+type Reward = Double
+type Quality = Double
+
+
+data QKey = QKey {
+    _state :: Arena,
+    _action :: Command
+} deriving (Show, Eq, Ord)
+
+
+type QMap = Map QKey Quality
+
+
+data Q = Q {
+    _bot2_prog :: Program,
+    _qMap :: QMap
+} deriving (Show, Eq, Ord)
+
+
+newtype QLearner a = QLearner { unQLearner :: StateT Q IO a }
+    deriving (Monad, MonadIO, MonadState Q, MonadRandom)
+
+
+instance MonadBattleBots QLearner where
+    tellBout boutSt = let
+        arena = _arena boutSt
+        time = _time boutSt
+        emp = _emp boutSt
+        in liftIO $ do
             putStrLn ""
-            putStrLn $ show p ++ ": " ++ trimmedOutStr
-            putStrLn $ show p ++ ": " ++ show command
-            when (p == P2) $ do
-                putStr "\nPRESS ENTER"
-                _ <- getLine
-                return ()
-        return command
+            putStrLn $ "Time: " ++ show time
+            putStrLn $ "Emp: " ++ show emp
+            putStrLn $ showArena (Just '?') Nothing arena
+    getCommand p boutSt = do
+        let arena = _arena boutSt
+        case p of
+            P1 -> getQCommand arena
+            P2 -> do
+                prog <- gets _bot2_prog
+                getCommandFromProgram prog p arena
+    
+
+getQCommand :: Arena -> QLearner Command
+getQCommand = error "dewfwfgewg"
+
+
+rate :: QMap -> Arena -> Command -> Quality
+rate qMap arena cmd = let
+    qKey = QKey {
+        _state = arena,
+        _action = cmd }
+    quality = case Map.lookup qKey qMap of
+        Nothing -> 100
+        Just q -> q
+    learningRate = 0.1
+    discountFactor = 0.1
+    futureQualityEstimate = error "dwefw3f"
+    reward = error "fwefwfw3"
+    learnedQuality = reward + discountFactor * futureQualityEstimate
+    newQuality = quality + learningRate * (learnedQuality - quality)
+    in newQuality
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
